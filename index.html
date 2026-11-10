@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Centro de Datos VR - A-Frame</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+
+  <style>
+    body { margin:0; font-family:system-ui; background:#07121e; color:white; }
+    .hud { position:fixed; top:12px; left:12px; z-index:10; background:#081827e8;
+           border:1px solid #3a7890; border-radius:12px; padding:14px;
+           max-width:320px; box-shadow:0 8px 30px #0008; }
+    .hud h2 { margin:0 0 6px; color:#63e5ff; font-size:18px; }
+    .hud p { margin:5px 0; font-size:13px; line-height:1.5; }
+    .hud button, .hud a { display:inline-block; background:#15576b; color:white;
+           border:1px solid #65bdd0; border-radius:7px; padding:7px 10px;
+           margin:5px 4px 0 0; text-decoration:none; cursor:pointer; font-size:12px; }
+    .hud button:focus-visible, .hud a:focus-visible { outline:3px solid yellow; }
+    .info { position:fixed; bottom:15px; left:12px; z-index:10;
+           background:#091928ed; border-radius:9px; padding:12px;
+           max-width:350px; font-size:14px; }
+    .info strong { color:#69e7ff; }
+    .small { font-size:12px; color:#c7dce6; }
+  </style>
+
+  <script>
+    /* ============================================================
+       COMPONENTE: rack  (cuerpo metálico + franjas con LED por unidad)
+    ============================================================ */
+    AFRAME.registerComponent('rack', {
+      schema: {
+        unidades: { type: 'int', default: 8 },
+        estado:   { type: 'string', default: 'ok' }
+      },
+      init: function () {
+        const el = this.el;
+        const n = this.data.unidades;
+        const ledColor = this.data.estado === 'ok' ? '#00ff55' : '#ff2222';
+
+        const cuerpo = document.createElement('a-box');
+        cuerpo.setAttribute('width', 0.6);
+        cuerpo.setAttribute('height', 2);
+        cuerpo.setAttribute('depth', 1);
+        cuerpo.setAttribute('position', '0 1 0');
+        cuerpo.setAttribute('color', '#1c1c24');
+        cuerpo.setAttribute('material', 'metalness: 0.6; roughness: 0.4');
+        el.appendChild(cuerpo);
+
+        const alto = 1.8 / n;
+        for (let i = 0; i < n; i++) {
+          const y = 0.1 + alto * i + alto / 2;
+
+          const srv = document.createElement('a-box');
+          srv.setAttribute('width', 0.54);
+          srv.setAttribute('height', alto * 0.85);
+          srv.setAttribute('depth', 0.02);
+          srv.setAttribute('position', '0 ' + y + ' 0.505');
+          srv.setAttribute('color', '#3b3b4a');
+          el.appendChild(srv);
+
+          const led = document.createElement('a-sphere');
+          led.setAttribute('radius', 0.014);
+          led.setAttribute('position', '0.22 ' + y + ' 0.525');
+          led.setAttribute('color', ledColor);
+          led.setAttribute('material', 'shader: flat');
+          el.appendChild(led);
+        }
+      }
+    });
+
+    /* ============================================================
+       COMPONENTE: info-rack
+       Crea panel flotante + detector de clic (transparente) + beep
+    ============================================================ */
+    AFRAME.registerComponent('info-rack', {
+      schema: {
+        titulo:  { type: 'string', default: 'RACK' },
+        detalle: { type: 'string', default: '' },
+        estado:  { type: 'string', default: 'ok' }
+      },
+      init: function () {
+        const rack = this.el;
+
+        // Panel flotante sobre el rack (\n aquí es JS válido)
+        const panel = document.createElement('a-entity');
+        panel.setAttribute('geometry', 'primitive: plane; width: 1.65; height: 0.88');
+        panel.setAttribute('material', 'color: #071b29; opacity: 0.96; side: double; shader: flat');
+        panel.setAttribute('position', '0 2.63 0.75');
+        panel.setAttribute('text', {
+          value: this.data.titulo + '\n' + this.data.detalle,
+          width: 1.55, align: 'center', color: '#ffffff', wrapCount: 25
+        });
+        panel.setAttribute('visible', false);
+        rack.appendChild(panel);
+
+        // Detector de selección (superficie invisible amplia)
+        const detector = document.createElement('a-box');
+        detector.classList.add('interactivo');
+        detector.setAttribute('position', '0 1 0.54');
+        detector.setAttribute('width', '0.67');
+        detector.setAttribute('height', '2.08');
+        detector.setAttribute('depth', '0.07');
+        detector.setAttribute('material', 'color: #77eaff; transparent: true; opacity: 0.015; depthWrite: false');
+        rack.appendChild(detector);
+
+        const datos = this.data;
+        detector.addEventListener('click', function () {
+          const abrir = !panel.getAttribute('visible');
+          panel.setAttribute('visible', abrir);
+
+          // Actualizar HUD lateral
+          const area = document.getElementById('detalle');
+          if (area) {
+            area.innerHTML =
+              '<strong>' + datos.titulo + '</strong>' +
+              '<p>' + datos.detalle + '</p>' +
+              '<p class="small">Estado simulado: ' +
+              (datos.estado === 'falla' ? 'FALLA' : 'ACTIVO') + '</p>';
+          }
+
+          // Beep sintético (Web Audio; no necesita archivo externo)
+          try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (AC) {
+              const ctx = window.sonidoCtx || (window.sonidoCtx = new AC());
+              if (ctx.state === 'suspended') ctx.resume();
+              const osc = ctx.createOscillator(), gan = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.value = datos.estado === 'falla' ? 320 : 720;
+              gan.gain.setValueAtTime(0.05, ctx.currentTime);
+              gan.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+              osc.connect(gan); gan.connect(ctx.destination);
+              osc.start(); osc.stop(ctx.currentTime + 0.17);
+            }
+          } catch (e) { console.warn('Audio no disponible', e); }
+        });
+      }
+    });
+  </script>
+</head>
+<body>
+
+  <!-- HUD superior (Clase 4) -->
+  <div class="hud">
+    <h2>ESPOCH | Centro de Datos VR</h2>
+    <p>W A S D: caminar · Ratón: mirar · Clic o punto central: seleccionar rack.</p>
+    <p>8 racks · CRAC · piso técnico · alarma · 3 modelos GLB</p>
+    <a href="ar.html">Abrir realidad aumentada</a>
+    <button id="gaze">Activar mirada 1,5 s</button>
+    <button id="stats">Mostrar / ocultar FPS</button>
+    <button id="reset">Volver a entrada</button>
+  </div>
+
+  <!-- Panel de detalle del rack seleccionado -->
+  <div class="info" id="detalle">
+    <strong>Bienvenido al laboratorio</strong>
+    <p>Seleccione un rack para consultar su función y estado. Busque el equipo con FALLA.</p>
+    <p class="small">Simulación educativa. Use un navegador compatible con WebXR para entrar en VR.</p>
+  </div>
+
+  <a-scene background="color: #0b0d12" renderer="colorManagement: true">
+
+    <!-- ============================================================
+         ASSETS GLB (Clase 3)
+    ============================================================ -->
+    <a-assets>
+      <a-asset-item id="servidores-glb" src="models/servers.glb"></a-asset-item>
+      <a-asset-item id="escritorio-glb" src="models/escritorio.glb"></a-asset-item>
+      <a-asset-item id="router-glb"     src="models/wifi_router.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- ============================================================
+         ILUMINACIÓN FRÍA (ambient + point central + alarma roja)
+    ============================================================ -->
+    <a-entity light="type: ambient; color: #b8d0ff; intensity: 0.55"></a-entity>
+    <a-entity light="type: point; color: #d6e6ff; intensity: 1.4; distance: 18; decay: 1.6"
+              position="0 2.9 -4"></a-entity>
+
+    <!-- ============================================================
+         PISO / TECHO / PAREDES (paleta azul-fría)
+    ============================================================ -->
+    <a-plane position="0 0 -4" rotation="-90 0 0" width="8" height="12" color="#415b70"></a-plane>
+    <a-plane position="0 3 -4" rotation="90 0 0"  width="8" height="12" color="#1a2530"></a-plane>
+    <a-box position="0 1.5 -10" width="8"   height="3" depth="0.2" color="#24384b"></a-box>
+    <a-box position="0 1.5 2"   width="8"   height="3" depth="0.2" color="#24384b"></a-box>
+    <a-box position="-4 1.5 -4" width="0.2" height="3" depth="12"  color="#24384b"></a-box>
+    <a-box position="4 1.5 -4"  width="0.2" height="3" depth="12"  color="#24384b"></a-box>
+
+    <!-- ============================================================
+         LETREROS
+    ============================================================ -->
+    <a-text value="CENTRO DE DATOS" position="0 2.6 -9.85" align="center" width="6" color="#00e5ff"></a-text>
+    <a-text value="PASILLO FRIO"   position="0 2.5 -3.8"  align="center" width="3" color="#ffffff"></a-text>
+
+    <!-- ============================================================
+         8 RACKS (4 izquierda + 4 derecha, RACK 06 en FALLA)
+    ============================================================ -->
+    <!-- Lado izquierdo -->
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 01; detalle: SERVIDORES WEB - ACTIVO"
+              position="-1.6 0 -2" rotation="0 90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 02; detalle: BASE DE DATOS - ACTIVO"
+              position="-1.6 0 -4" rotation="0 90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 03; detalle: APLICACIONES - ACTIVO"
+              position="-1.6 0 -6" rotation="0 90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 04; detalle: RESPALDO - ACTIVO"
+              position="-1.6 0 -8" rotation="0 90 0"></a-entity>
+
+    <!-- Lado derecho (RACK 06 en FALLA) -->
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 05; detalle: RED - ACTIVO"
+              position="1.6 0 -2" rotation="0 -90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: falla"
+              info-rack="titulo: RACK 06; detalle: MONITOREO - FALLA"
+              position="1.6 0 -4" rotation="0 -90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 07; detalle: ARCHIVOS - ACTIVO"
+              position="1.6 0 -6" rotation="0 -90 0"></a-entity>
+    <a-entity rack="unidades: 8; estado: ok"
+              info-rack="titulo: RACK 08; detalle: SEGURIDAD - ACTIVO"
+              position="1.6 0 -8" rotation="0 -90 0"></a-entity>
+
+    <!-- Etiquetas sobre los racks -->
+    <a-text value="RACK 01 - ACTIVO" position="-1.1 2.2 -2" rotation="0 90 0"  align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 02 - ACTIVO" position="-1.1 2.2 -4" rotation="0 90 0"  align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 03 - ACTIVO" position="-1.1 2.2 -6" rotation="0 90 0"  align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 04 - ACTIVO" position="-1.1 2.2 -8" rotation="0 90 0"  align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 05 - ACTIVO" position=" 1.1 2.2 -2" rotation="0 -90 0" align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 06 - FALLA"  position=" 1.1 2.2 -4" rotation="0 -90 0" align="center" width="2" color="#ff4444"></a-text>
+    <a-text value="RACK 07 - ACTIVO" position=" 1.1 2.2 -6" rotation="0 -90 0" align="center" width="2" color="#ffffff"></a-text>
+    <a-text value="RACK 08 - ACTIVO" position=" 1.1 2.2 -8" rotation="0 -90 0" align="center" width="2" color="#ffffff"></a-text>
+
+    <!-- ============================================================
+         PUERTA DE ACCESO
+    ============================================================ -->
+    <a-box position="0 1 1.85" width="1.2" height="2" depth="0.06" color="#8a5a2b"></a-box>
+    <a-sphere position="0.43 1 1.81" radius="0.055" color="#f5c542"></a-sphere>
+    <a-text value="ACCESO AL CENTRO DE DATOS"
+            position="0 2.35 1.78" rotation="0 180 0" align="center" width="3" color="#ffffff"></a-text>
+
+    <!-- ============================================================
+         UNIDAD CRAC
+    ============================================================ -->
+    <a-box position="-3 0.9 -9.2"   width="1.2"  height="1.8" depth="0.8"  color="#9aa3b5"></a-box>
+    <a-box position="-3 1.35 -8.79" width="0.9"  height="0.3" depth="0.02" color="#263849"></a-box>
+    <a-box position="-3 0.65 -8.79" width="0.95" height="0.6" depth="0.02" color="#526272"></a-box>
+    <a-text value="CRAC - CLIMATIZACION"
+            position="-3 2 -8.75" align="center" width="2.3" color="#00e5ff"></a-text>
+
+    <!-- ============================================================
+         PISO TÉCNICO: CUADRÍCULA
+    ============================================================ -->
+    <a-box position="-3 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position="-2 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position="-1 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position=" 0 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position=" 1 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position=" 2 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+    <a-box position=" 3 0.012 -4" width="0.012" height="0.012" depth="12" color="#9aabba"></a-box>
+
+    <a-box position="0 0.012  1" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012  0" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -1" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -2" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -3" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -4" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -5" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -6" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -7" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -8" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+    <a-box position="0 0.012 -9" width="8" height="0.012" depth="0.012" color="#9aabba"></a-box>
+
+    <!-- ============================================================
+         PANEL DE SUPERVISIÓN (&#10; = salto de línea HTML correcto)
+    ============================================================ -->
+    <a-plane position="3.83 1.65 -4" rotation="0 -90 0"
+             width="3" height="1.5" color="#102a39"></a-plane>
+    <a-text value="MONITOREO SIMULADO&#10;Temp: 22 C&#10;Humedad: 45%&#10;Racks activos: 7/8&#10;RACK 06: FALLA"
+            position="3.77 1.9 -4" rotation="0 -90 0" width="2.8" color="#ffffff"></a-text>
+
+    <!-- ============================================================
+         ALARMA PULSANTE (roja)
+    ============================================================ -->
+    <a-light type="point" color="#ff2222" intensity="0.5" distance="3"
+             position="1.2 2 -5"
+             animation="property: intensity; from: 0.2; to: 1.4; dir: alternate; dur: 650; loop: true"></a-light>
+
+    <!-- ============================================================
+         SEÑAL DE SALIDA
+    ============================================================ -->
+    <a-text value="SALIDA">
+            position="0 0.03 -1" rotation="-90 0 0"
+            align="center" width="1.8" color="#ffe166"></a-text>
+
+    <!-- ============================================================
+         MODELOS GLB (Clase 3)
+    ============================================================ -->
+    <a-gltf-model src="#servidores-glb" position="2.85 0.12 -1.25" rotation="0 0 0"    scale="1.6 1.6 1.6"></a-gltf-model>
+    <a-gltf-model src="#escritorio-glb" position="2.95  0.786 1"   rotation="0 0 0"    scale="1 1 1"></a-gltf-model>
+
+    <!-- ============================================================
+         CÁMARA + CURSOR
+    ============================================================ -->
+    <a-camera position="0 1.6 0.5"
+              wasd-controls="enabled: true"
+              look-controls="enabled: true">
+      <a-cursor raycaster="objects: .interactivo"
+                fuse="false" fuse-timeout="1500" color="#5fe9ff"></a-cursor>
+    </a-camera>
+
+  </a-scene>
+
+  <script>
+    /* Botón: alternar selección por mirada (fix del manual Clase 6) */
+    document.getElementById('gaze').addEventListener('click', function () {
+      const cursor = document.querySelector('a-cursor');
+      const activado = cursor.components.cursor.data.fuse;
+      cursor.setAttribute('fuse', !activado);
+      cursor.setAttribute('fuse-timeout', 1500);
+      this.textContent = !activado ? 'Desactivar mirada' : 'Activar mirada 1,5 s';
+    });
+
+    /* Botón: mostrar / ocultar stats (FPS) */
+    document.getElementById('stats').addEventListener('click', function () {
+      const escena = document.querySelector('a-scene');
+      if (escena.hasAttribute('stats')) escena.removeAttribute('stats');
+      else escena.setAttribute('stats', '');
+    });
+
+    /* Botón: resetear cámara a la entrada */
+    document.getElementById('reset').addEventListener('click', function () {
+      const cam = document.querySelector('a-camera');
+      cam.setAttribute('position', '0 1.6 0.5');
+      cam.setAttribute('rotation', '0 0 0');
+      const lc = cam.components['look-controls'];
+      if (lc && lc.pitchObject && lc.yawObject) {
+        lc.pitchObject.rotation.set(0, 0, 0);
+        lc.yawObject.rotation.set(0, 0, 0);
+      }
+    });
+  </script>
+</body>
+</html>
