@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Centro de Datos AR - MindAR</title>
+
+  <!-- A-Frame + MindAR -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    body { margin: 0; font-family: system-ui; }
+    .bar {
+      position: fixed; top: 8px; left: 8px; right: 8px;
+      z-index: 9999; background: #10283de8; color: white;
+      border-radius: 9px; padding: 12px; font-size: 14px;
+      box-shadow: 0 4px 14px #0008;
+    }
+    .bar a { color: #82eaff; }
+    .bar button {
+      background: #15576b; color: white; border: 1px solid #65bdd0;
+      border-radius: 6px; padding: 6px 10px; margin: 4px 4px 0 0;
+      font-size: 13px; cursor: pointer;
+    }
+    .bar button:active { background: #1d7a91; }
+    .bar button:focus-visible { outline: 3px solid yellow; }
+    .bar small { display: block; margin-top: 5px; font-size: 11px; color: #c7dce6; }
+  </style>
+</head>
+<body>
+
+  <!-- Barra superior: navegación + selector de modelo + instrucciones -->
+  <div class="bar">
+    <b>Centro de Datos | Realidad Aumentada</b> ·
+    <a href="index.html">Volver a VR</a>
+
+    <div style="margin-top:7px">
+      <button onclick="tipoAR('servers')">Servidores</button>
+      <button onclick="tipoAR('router')">Router WiFi</button>
+      <button onclick="tipoAR('desk')">Escritorio</button>
+    </div>
+
+    <small>
+      Autorice la cámara y apunte al marcador <b>imagen.jpg</b> impreso.
+      Use HTTPS en Android. Si no reconoce la imagen, revise luz y distancia (30–50 cm).
+    </small>
+  </div>
+
+  <!-- Escena AR -->
+  <a-scene
+    mindar-image="imageTargetSrc: targets.mind;"
+    renderer="colorManagement: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <!-- ============================================================
+         ASSETS — UN SOLO bloque con los 3 GLB
+         (el manual advierte: no crear múltiples <a-assets>)
+    ============================================================ -->
+    <a-assets>
+      <a-asset-item id="modelo-servidores" src="models/servers.glb"></a-asset-item>
+      <a-asset-item id="modelo-router"     src="models/wifi_router.glb"></a-asset-item>
+      <a-asset-item id="modelo-escritorio" src="models/escritorio.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- ===========================================================
+         CÁMARA — sin look-controls: MindAR controla la orientación
+    ============================================================ -->
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!-- ============================================================
+         MARCADOR AR — targetIndex 0 = imagen compilada en targets.mind
+    ============================================================ -->
+    <a-entity mindar-image-target="targetIndex: 0">
+
+      <!-- Modelo 1: Servidores (visible por defecto) -->
+      <a-entity id="ar-servers" visible="true">
+        <a-gltf-model src="#modelo-servidores"
+                      position="0 -0.28 0.1"
+                      scale="0.65 0.65 0.65"
+                      rotation="0 0 0"></a-gltf-model>
+      </a-entity>
+
+      <!-- Modelo 2: Router WiFi (oculto por defecto) -->
+      <a-entity id="ar-router" visible="false">
+        <a-gltf-model src="#modelo-router"
+                      position="0 -0.15 0.1"
+                      rotation="0 0 0"
+                      scale="2 2 2"></a-gltf-model>
+      </a-entity>
+
+      <!-- Modelo 3: Escritorio (oculto por defecto) -->
+      <a-entity id="ar-desk" visible="false">
+        <a-gltf-model src="#modelo-escritorio"
+                      position="0 -0.03 0.1"
+                      rotation="0 180 0"
+                      scale="0.32 0.32 0.32"></a-gltf-model>
+      </a-entity>
+
+      <!-- Panel de estado dinámico (cambia según el botón pulsado) -->
+      <a-plane width="1.1" height="0.28"
+               color="#0f1c2b" opacity="0.9"
+               position="0 0.47 0.12"></a-plane>
+      <a-text id="ar-estado"
+              value="SERVIDORES | ACTIVO"
+              align="center" width="1.8"
+              color="#6dffb5"
+              position="0 0.47 0.14"></a-text>
+
+    </a-entity>
+  </a-scene>
+
+  <script>
+    /* ============================================================
+       tipoAR(): alterna el modelo visible y actualiza el panel
+    ============================================================ */
+    function tipoAR(tipo) {
+      const ids = { servers: 'ar-servers', router: 'ar-router', desk: 'ar-desk' };
+
+      Object.keys(ids).forEach(k => {
+        const el = document.getElementById(ids[k]);
+        if (el) el.setAttribute('visible', k === tipo);
+      });
+
+      const txt = {
+        servers: 'SERVIDORES | ACTIVO',
+        router:  'ROUTER WIFI | ACTIVO',
+        desk:    'PUESTO TECNICO'
+      };
+
+      // setAttribute('text', 'value', …) — forma segura para <a-text>
+      const estado = document.querySelector('#ar-estado');
+      if (estado) estado.setAttribute('text', 'value', txt[tipo]);
+    }
+  </script>
+</body>
+</html>
